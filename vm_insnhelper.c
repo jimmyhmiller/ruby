@@ -3909,49 +3909,10 @@ vm_call_symbol(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp,
 }
 
 static VALUE
-vm_call_opt_send_complex(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, struct rb_calling_info *calling)
+vm_call_opt_send0(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, struct rb_calling_info *calling, int flags)
 {
-    RB_DEBUG_COUNTER_INC(ccf_opt_send_complex);
     const struct rb_callinfo *ci = calling->ci;
-    int i, flags = VM_CALL_FCALL;
-    VALUE sym;
-
-    VALUE argv_ary;
-    CALLER_SETUP_ARG(reg_cfp, calling, ci, ALLOW_HEAP_ARGV);
-    if (UNLIKELY(argv_ary = calling->heap_argv)) {
-        sym = rb_ary_shift(argv_ary);
-        flags |= VM_CALL_ARGS_SPLAT;
-        if (calling->kw_splat) {
-            VALUE last_hash = rb_ary_last(0, NULL, argv_ary);
-            ((struct RHash *)last_hash)->basic.flags |= RHASH_PASS_AS_KEYWORDS;
-            calling->kw_splat = 0;
-        }
-    }
-    else {
-        if (calling->kw_splat) flags |= VM_CALL_KW_SPLAT;
-        i = calling->argc - 1;
-
-        if (calling->argc == 0) {
-            rb_raise(rb_eArgError, "no method name given");
-        }
-
-        sym = TOPN(i);
-        if (i > 0) {
-            MEMMOVE(&TOPN(i), &TOPN(i-1), VALUE, i);
-        }
-        calling->argc -= 1;
-        DEC_SP(1);
-    }
-
-    return vm_call_symbol(ec, reg_cfp, calling, ci, sym, flags);
-}
-
-static VALUE
-vm_call_opt_send_simple(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, struct rb_calling_info *calling)
-{
-    RB_DEBUG_COUNTER_INC(ccf_opt_send_simple);
-    const struct rb_callinfo *ci = calling->ci;
-    int i, flags = vm_ci_flag(ci) | VM_CALL_FCALL;
+    int i;
     VALUE sym;
 
     i = calling->argc - 1;
@@ -3982,6 +3943,38 @@ vm_call_opt_send_simple(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp,
     DEC_SP(1);
 
     return vm_call_symbol(ec, reg_cfp, calling, ci, sym, flags);
+}
+
+static VALUE
+vm_call_opt_send_complex(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, struct rb_calling_info *calling)
+{
+    RB_DEBUG_COUNTER_INC(ccf_opt_send_complex);
+    const struct rb_callinfo *ci = calling->ci;
+    int flags = VM_CALL_FCALL;
+    VALUE sym;
+
+    VALUE argv_ary;
+    CALLER_SETUP_ARG(reg_cfp, calling, ci, ALLOW_HEAP_ARGV);
+    if (UNLIKELY(argv_ary = calling->heap_argv)) {
+        sym = rb_ary_shift(argv_ary);
+        flags |= VM_CALL_ARGS_SPLAT;
+        if (calling->kw_splat) {
+            VALUE last_hash = rb_ary_last(0, NULL, argv_ary);
+            ((struct RHash *)last_hash)->basic.flags |= RHASH_PASS_AS_KEYWORDS;
+            calling->kw_splat = 0;
+        }
+        return vm_call_symbol(ec, reg_cfp, calling, ci, sym, flags);
+    }
+
+    if (calling->kw_splat) flags |= VM_CALL_KW_SPLAT;
+    return vm_call_opt_send0(ec, reg_cfp, calling, flags);
+}
+
+static VALUE
+vm_call_opt_send_simple(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, struct rb_calling_info *calling)
+{
+    RB_DEBUG_COUNTER_INC(ccf_opt_send_simple);
+    return vm_call_opt_send0(ec, reg_cfp, calling, vm_ci_flag(calling->ci) | VM_CALL_FCALL);
 }
 
 static VALUE
