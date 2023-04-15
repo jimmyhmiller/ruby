@@ -3479,9 +3479,7 @@ vm_call_cfunc_other(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, str
         VM_ASSERT(RB_TYPE_P(argv_ary, T_ARRAY));
         VM_ASSERT(RBASIC_CLASS(argv_ary) == 0); // hidden ary
 
-        VALUE ret = vm_call_cfunc_with_frame_(ec, reg_cfp, calling, argc, argv, stack_bottom);
-        RB_GC_GUARD(argv_ary);
-        return ret;
+        return vm_call_cfunc_with_frame_(ec, reg_cfp, calling, argc, argv, stack_bottom);
     }
     else {
         CC_SET_FASTPATH(calling->cc, vm_call_cfunc_with_frame, !rb_splat_or_kwargs_p(ci) && !calling->kw_splat);
@@ -3491,18 +3489,38 @@ vm_call_cfunc_other(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, str
 }
 
 static inline VALUE
-vm_call_cfunc_only_splat(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, struct rb_calling_info *calling)
+vm_call_cfunc_array_argv(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, struct rb_calling_info *calling, int stack_offset, int argc_offset)
 {
-    RB_DEBUG_COUNTER_INC(ccf_cfunc_only_splat);
-    VALUE argv_ary = reg_cfp->sp[-1];
-    int argc = RARRAY_LENINT(argv_ary);
+    VALUE argv_ary = reg_cfp->sp[-1 - stack_offset];
+    int argc = RARRAY_LENINT(argv_ary) - argc_offset;
 
     if (UNLIKELY(argc > VM_ARGC_STACK_MAX)) {
         return vm_call_cfunc_other(ec, reg_cfp, calling);
     }
 
     VALUE *argv = (VALUE *)RARRAY_CONST_PTR(argv_ary);
+    calling->kw_splat = 0;
+    int i;
+    VALUE *stack_bottom = reg_cfp->sp - 2 - stack_offset;
+    VALUE *sp = stack_bottom;
+    CHECK_VM_STACK_OVERFLOW(reg_cfp, argc);
+    for(i = 0; i < argc; i++) {
+        *++sp = argv[i];
+    }
+    reg_cfp->sp = sp+1;
+
+    return vm_call_cfunc_with_frame_(ec, reg_cfp, calling, argc, stack_bottom+1, stack_bottom);
+}
+
+static inline VALUE
+vm_call_cfunc_only_splat(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp, struct rb_calling_info *calling)
+{
+    RB_DEBUG_COUNTER_INC(ccf_cfunc_only_splat);
+    VALUE argv_ary = reg_cfp->sp[-1];
+    int argc = RARRAY_LENINT(argv_ary);
+    VALUE *argv = (VALUE *)RARRAY_CONST_PTR(argv_ary);
     VALUE last_hash;
+    int argc_offset = 0;
 
     if (UNLIKELY(argc > 0 &&
         RB_TYPE_P((last_hash = argv[argc-1]), T_HASH) &&
@@ -3510,19 +3528,9 @@ vm_call_cfunc_only_splat(rb_execution_context_t *ec, rb_control_frame_t *reg_cfp
         if (!RHASH_EMPTY_P(last_hash)) {
             return vm_call_cfunc_other(ec, reg_cfp, calling);
         }
-        calling->kw_splat = 0;
-        argc--;
+        argc_offset++;
     }
-
-    int i;
-    VALUE *stack_bottom = reg_cfp->sp - 2;
-    VALUE *sp = stack_bottom;
-    CHECK_VM_STACK_OVERFLOW(reg_cfp, argc);
-    for(i = 0; i < argc; i++) {
-        *++sp = argv[i];
-    }
-    reg_cfp->sp = sp+1;
-    return vm_call_cfunc_with_frame_(ec, reg_cfp, calling, argc, stack_bottom+1, stack_bottom);
+    return vm_call_cfunc_array_argv(ec, reg_cfp, calling, 0, argc_offset);
 }
 
 static inline VALUE
@@ -3532,25 +3540,7 @@ vm_call_cfunc_only_splat_kw(rb_execution_context_t *ec, rb_control_frame_t *reg_
     VALUE keyword_hash = reg_cfp->sp[-1];
 
     if (RB_TYPE_P(keyword_hash, T_HASH) && RHASH_EMPTY_P(keyword_hash)) {
-        VALUE argv_ary = reg_cfp->sp[-2];
-        int argc = RARRAY_LENINT(argv_ary);
-
-        if (UNLIKELY(argc > VM_ARGC_STACK_MAX)) {
-            return vm_call_cfunc_other(ec, reg_cfp, calling);
-        }
-
-        VALUE *argv = (VALUE *)RARRAY_CONST_PTR(argv_ary);
-        calling->kw_splat = 0;
-        int i;
-        VALUE *stack_bottom = reg_cfp->sp - 3;
-        VALUE *sp = stack_bottom;
-        CHECK_VM_STACK_OVERFLOW(reg_cfp, argc-1);
-        for(i = 0; i < argc; i++) {
-            *++sp = argv[i];
-        }
-        reg_cfp->sp = sp+1;
-
-        return vm_call_cfunc_with_frame_(ec, reg_cfp, calling, argc, stack_bottom+1, stack_bottom);
+        return vm_call_cfunc_array_argv(ec, reg_cfp, calling, 1, 0);
     }
 
     return vm_call_cfunc_other(ec, reg_cfp, calling);

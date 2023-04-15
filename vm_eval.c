@@ -61,27 +61,13 @@ vm_argv_ruby_array(VALUE *av, const VALUE *argv, int *flags, int *argc, int kw_s
     return av;
 }
 
+static inline VALUE vm_call0_cc(rb_execution_context_t *ec, VALUE recv, ID id, int argc, const VALUE *argv, const struct rb_callcache *cc, int kw_splat);
+
 VALUE
 rb_vm_call0(rb_execution_context_t *ec, VALUE recv, ID id, int argc, const VALUE *argv, const rb_callable_method_entry_t *cme, int kw_splat)
 {
-    int flags = kw_splat ? VM_CALL_KW_SPLAT : 0;
-    VALUE *use_argv = (VALUE *)argv;
-    VALUE av[2];
-
-    if (UNLIKELY(cme->def->type == VM_METHOD_TYPE_ISEQ && argc > VM_ARGC_STACK_MAX)) {
-        use_argv = vm_argv_ruby_array(av, argv, &flags, &argc, kw_splat);
-    }
-
-    struct rb_calling_info calling = {
-        .ci = &VM_CI_ON_STACK(id, flags, argc, NULL),
-        .cc = &VM_CC_ON_STACK(Qfalse, vm_call_general, {{ 0 }}, cme),
-        .block_handler = vm_passed_block_handler(ec),
-        .recv = recv,
-        .argc = argc,
-        .kw_splat = kw_splat,
-    };
-
-    return vm_call0_body(ec, &calling, use_argv);
+    const struct rb_callcache cc = VM_CC_ON_STACK(Qfalse, vm_call_general, {{ 0 }}, cme);
+    return vm_call0_cc(ec, recv, id, argc, argv, &cc, kw_splat);
 }
 
 VALUE
