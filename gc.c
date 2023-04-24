@@ -3513,11 +3513,6 @@ obj_free(rb_objspace_t *objspace, VALUE obj)
             xfree(RCLASS_SUPERCLASSES(obj));
         }
 
-#if !RCLASS_EXT_EMBEDDED
-        if (RCLASS_EXT(obj))
-            xfree(RCLASS_EXT(obj));
-#endif
-
         (void)RB_DEBUG_COUNTER_INC_IF(obj_module_ptr, BUILTIN_TYPE(obj) == T_MODULE);
         (void)RB_DEBUG_COUNTER_INC_IF(obj_class_ptr, BUILTIN_TYPE(obj) == T_CLASS);
         break;
@@ -3644,9 +3639,6 @@ obj_free(rb_objspace_t *objspace, VALUE obj)
         cc_table_free(objspace, obj, FALSE);
         rb_class_remove_from_module_subclasses(obj);
         rb_class_remove_from_super_subclasses(obj);
-#if !RCLASS_EXT_EMBEDDED
-        xfree(RCLASS_EXT(obj));
-#endif
 
         RB_DEBUG_COUNTER_INC(obj_iclass_ptr);
         break;
@@ -3944,14 +3936,16 @@ objspace_each_objects_try(VALUE arg)
  *
  * This is a sample callback code to iterate liveness objects:
  *
- *   int
- *   sample_callback(void *vstart, void *vend, int stride, void *data) {
- *     VALUE v = (VALUE)vstart;
- *     for (; v != (VALUE)vend; v += stride) {
- *       if (RBASIC(v)->flags) { // liveness check
- *       // do something with live object 'v'
- *     }
- *     return 0; // continue to iteration
+ *   static int
+ *   sample_callback(void *vstart, void *vend, int stride, void *data)
+ *   {
+ *       VALUE v = (VALUE)vstart;
+ *       for (; v != (VALUE)vend; v += stride) {
+ *           if (!rb_objspace_internal_object_p(v)) { // liveness check
+ *               // do something with live object 'v'
+ *           }
+ *       }
+ *       return 0; // continue to iteration
  *   }
  *
  * Note: 'vstart' is not a top of heap_page.  This point the first
@@ -4903,9 +4897,6 @@ obj_memsize_of(VALUE obj, int use_all_types)
             if (FL_TEST_RAW(obj, RCLASS_SUPERCLASSES_INCLUDE_SELF)) {
                 size += (RCLASS_SUPERCLASS_DEPTH(obj) + 1) * sizeof(VALUE);
             }
-#if !RCLASS_EXT_EMBEDDED
-            size += sizeof(rb_classext_t);
-#endif
         }
         break;
       case T_ICLASS:

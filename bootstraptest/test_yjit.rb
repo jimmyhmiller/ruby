@@ -1,3 +1,23 @@
+# Regression test for GC mishap while doing shape transition
+assert_equal '[:ok]', %q{
+  # [Bug #19601]
+  class RegressionTest
+    def initialize
+      @a = @b = @fourth_ivar_does_shape_transition = nil
+    end
+
+    def extender
+      @first_extended_ivar = [:ok]
+    end
+  end
+
+  GC.stress = true
+
+  # Used to crash due to GC run in rb_ensure_iv_list_size()
+  # not marking the newly allocated [:ok].
+  RegressionTest.new.extender.itself
+} unless RUBY_DESCRIPTION.include?('+RJIT') # Skip on RJIT since this uncovers a crash
+
 assert_equal 'true', %q{
   # regression test for tracking type of locals for too long
   def local_setting_cmp(five)
@@ -3911,5 +3931,19 @@ assert_equal '[true, true, true, true, true]', %q{
     results << (my_func(*splat) == ["test", :base, false, ["other", "other"]])
     results
   end
+  calling_my_func
+}
+
+# Regresssion test: rest and optional and splat
+assert_equal 'true', %q{
+  def my_func(base=nil, *args)
+    [base, args]
+  end
+
+  def calling_my_func
+    array = []
+    my_func(:base, :rest1, *array) == [:base, [:rest1]]
+  end
+
   calling_my_func
 }
